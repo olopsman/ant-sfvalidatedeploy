@@ -1,0 +1,402 @@
+<project name="BuildMaterial_ConfigurationManagement" default="all-with-check" basedir="." xmlns:sf="antlib:com.salesforce">
+    
+	<property name="export.folder" value="ExportFolder"/>
+	
+	
+	<path id="globalpath">
+		<fileset dir="libraries">
+			<include name="**/*.jar"/>
+		</fileset>
+	</path>
+	
+	<taskdef name="deploy" classname="com.salesforce.ant.DeployTask" classpathref="globalpath" />
+	<taskdef name="retrieve" classname="com.salesforce.ant.RetrieveTask" classpathref="globalpath" />
+	
+	<scriptdef name="propertyreset" language="javascript" description="Allows to assign @{property} new value">
+		<attribute name="name"/>
+		<attribute name="value"/>
+		project.setProperty(attributes.get("name"), attributes.get("value"));
+	</scriptdef>
+	
+			
+	<target name="all" depends="INIT,FROM,TO,cond1,cond2,retrievePackage,deployPackage,clean" />
+	
+	<!--target name="all-with-check" depends="INIT,FROM,TO,cond1,cond2,retrievePackage,checkPackage,deployPackage,clean" /-->
+	<target name="all-with-check" depends="INIT,FROM,TO,cond1,cond2,retrievePackage,deployPackage,clean" />
+	
+	<target name="deploy-with-check" depends="INIT,TO,cond2,checkPackage,deployPackage" />
+	
+	<!--INIT-->
+	<target name="INIT">
+		<!--LOG-->
+		<record name="ExportFolder.log" loglevel="verbose"/>
+		<!--INIT-->
+		<property file="build.properties"/>
+		<property environment="env"/>
+		<!--CHK ONLY-->
+		<input message="Do you want to ONLY test deployment :>" addproperty="sf.checkOnly" validargs="true,false"/>
+		<echo message="sf.checkOnly ==> ${sf.checkOnly}" />
+		<!--RUN ALL TEST-->
+		<input message="Do you want to run ALL TEST :>" addproperty="sf.runAllTest" validargs="true,false"/>
+	</target>
+	
+	<!--FROM-->
+	<target name="FROM">
+		<!--URL ASK-->
+		<input message="Environment FROM :>" addproperty="sf.SURL1" validargs="prod,sandbox"/>
+		<!--LOGIN PWD TOKEN-->
+		<input message="login FROM :>" addproperty="sf.username1"/>
+		<input message="password FROM :>" addproperty="sf.pwd1">
+			<handler classname="org.apache.tools.ant.input.SecureInputHandler" />
+		</input>
+		<input message="token FROM :>" addproperty="sf.token1"/>
+		<property name="sf.password1" value="${sf.pwd1}${sf.token1}"/>
+	</target>
+	
+	<!--TO-->
+	<target name="TO">
+		<!--URL ASK-->
+		<input message="Environment TO :>" addproperty="sf.SURL2" validargs="prod,sandbox"/>
+		<!--LOGIN PWD TOKEN-->
+		<input message="login TO :>" addproperty="sf.username2" />
+		<input message="password TO :>" addproperty="sf.pwd2">
+			<handler classname="org.apache.tools.ant.input.SecureInputHandler" />
+		</input>
+		<input message="token TO :>" addproperty="sf.token2"/>
+		<property name="sf.password2" value="${sf.pwd2}${sf.token2}"/>
+	</target>
+	
+	<!--URL CONDITION1-->
+	<target name="cond1" depends="cond-if1,cond-else1"/>
+	
+	<target name="check-cond1">
+	  <condition property="cond-is-true1">
+		<equals arg1="prod" arg2="${sf.SURL1}" />
+	  </condition>
+	</target>
+	<target name="cond-if1" depends="check-cond1" if="cond-is-true1">
+		<property name="sf.serverurl1" value="https://login.salesforce.com"/>
+	</target>
+
+	<target name="cond-else1" depends="check-cond1" unless="cond-is-true1">
+		<property name="sf.serverurl1" value="https://test.salesforce.com"/>
+	</target>
+	
+	<!--URL CONDITION2-->
+	<target name="cond2" depends="cond-if2,cond-else2"/>
+	
+	<target name="check-cond2">
+	  <condition property="cond-is-true2">
+		<equals arg1="prod" arg2="${sf.SURL2}" />
+	  </condition>
+	</target>
+	
+	<target name="cond-if2" depends="check-cond2" if="cond-is-true2">
+		<property name="sf.serverurl2" value="https://login.salesforce.com"/>
+	</target>
+
+	<target name="cond-else2" depends="check-cond2" unless="cond-is-true2">
+		<property name="sf.serverurl2" value="https://test.salesforce.com"/>
+	</target>
+	
+	<!--RETRIEVE-->
+	<target name="retrievePackage">
+		<echo message="TEST ONLY = ${sf.checkOnly}" />
+		<echo message="USER FROM {=== ${sf.username1}" />
+		<echo message="USER TO ===} ${sf.username2}" />
+		<input message="PLEASE click ENTER to confirm or Close the window :>"/>
+		<echo message="DELETE ExportFolder" />
+		<delete dir="ExportFolder"/>
+		<echo message="CREATE ExportFolder" />
+		<mkdir dir="ExportFolder"/>
+		<echo message="RETRIEVE MetaData to ${sf.username1}" />
+		<echo message="serverurl1 => ${sf.serverurl1}" />
+		<retrieve
+			username="${sf.username1}"
+			password="${sf.password1}"
+			serverurl="${sf.serverurl1}"
+			retrieveTarget="ExportFolder"
+			unpackaged="/packageImport.xml"
+			unzip="true"
+		/>
+	</target>
+	
+	<!--DEPLOY-->
+	<target name="deployPackage">
+		<echo message="DEPLOY MetaData to ${sf.username2}" />
+		<echo message="serverurl2 => ${sf.serverurl2}" />
+		<deploy
+			checkOnly="${sf.checkOnly}"
+			logType="Detail"
+			username="${sf.username2}"
+			password="${sf.password2}"
+			serverurl="${sf.serverurl2}"
+			deployRoot="${export.folder}"
+			pollWaitMillis="1000"
+			maxPoll="1000"
+			singlePackage="true"
+			runAllTests="${sf.runAllTest}"
+			autoUpdatePackage="true"
+		/>
+	</target>
+	
+	<!--CHECK-->
+	<target name="checkPackage" >
+		<propertyreset name="export.folder" value="ExportFolder-1"/>
+		<antcall target="checkTriggersInPackage">
+			 <param name="trigger.dir" value="${export.folder}/triggers"/>
+		</antcall>
+		<antcall target="checkClassesPackage">
+			 <param name="class.dir" value="${export.folder}/classes"/>
+		</antcall>
+		<antcall target="checkPagesPackage">
+			 <param name="page.dir" value="${export.folder}/pages"/>
+		</antcall>
+		<antcall target="designStandardCheck">
+			<param name="review" value="designStandardChecks-OK"/>
+		</antcall>
+	</target>
+	
+	<!--**********************************************************************************************************
+					TRIGGER VALIDATION SECTION [START]
+	***********************************************************************************************************-->
+
+	<!--Target used to check if triggers are found in the package and call the fail task to stop the build if triggers are found-->
+	<target name="checkTriggersInPackage" depends="trigger.check" if="triggers">
+		<property name="trigger.dir" value="${export.folder}/triggers" />
+		<resourcecount property="count">
+			<fileset id="matches" dir="${trigger.dir}">
+				<patternset id="files">
+					<include name="**/*.trigger"/>
+				</patternset>
+			</fileset>
+		</resourcecount>
+		<fail message="'${count}' triggers have been foumd in '${trigger.dir}'">
+			<condition>
+				<resourcecount when="greater" count="0" refid="matches" />
+			</condition>
+		</fail>
+	</target>
+	
+	<!-- Target calling the checkTriggersInPackage target and sets the parameter to the folder corresponding to the package containing a trigger -->
+	<target name="TriggerPresenceValidation-Fail">
+		<propertyreset name="export.folder" value="ExportFolder"/>
+		<echo message="Validates if the package present in the '${export.folder}' folder contains some triggers"/>
+		<antcall target="checkTriggersInPackage">
+			 <param name="trigger.dir" value="${export.folder}/triggers"/>
+		</antcall>
+	</target>
+	
+	<!-- Target calling the checkTriggersInPackage target and sets the parameter to the folder corresponding to the package containing no trigger -->
+	<target name="TriggerPresenceValidation-Success">
+		<propertyreset name="export.folder" value="ExportFolder-1"/>
+		<echo message="Validates if the package present in the '${export.folder}' folder contains some triggers"/>
+		<antcall target="checkTriggersInPackage">
+			 <param name="trigger.dir" value="${export.folder}/triggers"/>
+		</antcall>
+	</target>
+	
+	<target name="trigger.check">
+		<condition property="triggers">
+			<and>
+				<available file="${export.folder}/triggers" type="dir" />
+			</and>
+		</condition>
+	</target>
+	<!--**********************************************************************************************************
+					TRIGGER VALIDATION SECTION [END]
+	***********************************************************************************************************-->
+	
+	<!--**********************************************************************************************************
+					APEX CLASS VALIDATION SECTION [START]
+	***********************************************************************************************************-->
+	
+	<target name="checkClassesPackage">
+		<property name="class.dir" value="ExportFolder/classes" />
+		<resourcecount property="count">
+			<fileset id="matchesGlobal" dir="${class.dir}">
+				<patternset id="files">
+					<include name="**/*.cls"/>
+					
+				</patternset>
+			</fileset>
+		</resourcecount>
+		<resourcecount property="countNC">
+			<fileset id="matches" dir="${class.dir}">
+				<filename regex="(?:VFC|AP)[0-9][0-9][0-9]_.*.cls"/>
+			</fileset>
+		</resourcecount>
+		<fail message="Found '${count}' classe(s) which do(es) not follow the naming convention in '${class.dir}'">
+			<condition>
+				<resourcecount when="less" count="${count}" refid="matches" />
+			</condition>
+		</fail>
+		<echo message="Naming convention validation for classes successful"/>
+	</target>
+	
+	<!-- Target calling the checkClassesPackage target and sets the parameter to the folder corresponding to the package containing classes which do not follow the naming convention -->
+	<target name="checkClassesPackage-Fail">
+		<propertyreset name="export.folder" value="ExportFolder"/>
+		<echo message="Validates if the package present in the '${export.folder}' folder contains some classes whose name follows the naming convention (in this case the classes do not follow the naming convention)"/>
+		<antcall target="checkClassesPackage">
+			 <param name="class.dir" value="${export.folder}/classes"/>
+		</antcall>
+	</target>
+	
+	<!-- Target calling the checkClassesPackage target and sets the parameter to the folder corresponding to the package containing classes which follow the naming convention -->
+	<target name="checkClassesPackage-Success">
+		<propertyreset name="export.folder" value="ExportFolder-1"/>
+		<echo message="Validates if the package present in the '${export.folder}' folder contains some classes whose name follows the naming convention (in this case the classes follow the naming convention)"/>
+		<antcall target="checkClassesPackage">
+			 <param name="class.dir" value="${export.folder}/classes"/>
+		</antcall>
+	</target>
+	
+	<!--**********************************************************************************************************
+					APEX CLASS VALIDATION SECTION [END]
+	***********************************************************************************************************-->	
+	
+	
+	<!--**********************************************************************************************************
+					VF PAGE VALIDATION SECTION [START]
+	***********************************************************************************************************-->
+	
+	<target name="checkPagesPackage">
+		<property name="page.dir" value="ExportFolder/pages" />
+		<resourcecount property="count">
+			<fileset id="matchesGlobal" dir="${page.dir}">
+				<patternset id="files">
+					<include name="**/*.page"/>
+				</patternset>
+			</fileset>
+		</resourcecount>
+		<resourcecount property="countNC">
+			<fileset id="matches" dir="${page.dir}">
+				<filename regex="(?:VFP)[0-9][0-9][0-9]_.*.page"/>
+			</fileset>
+		</resourcecount>
+		<fail message="Found '${count}' page(s) which do(es) not follow the naming convention in '${page.dir}'">
+			<condition>
+				<resourcecount when="less" count="${count}" refid="matches" />
+			</condition>
+		</fail>
+		<echo message="Naming convention validation for pages successful"/>
+	</target>
+	
+	<!-- Target calling the checkPagesPackage target and sets the parameter to the folder corresponding to the package containing pages which do not follow the naming convention -->
+	<target name="checkPagesPackage-Fail">
+		<propertyreset name="export.folder" value="ExportFolder"/>
+		<echo message="Validates if the package present in the '${export.folder}' folder contains some pages whose name follows the naming convention (in this case the pages do not follow the naming convention)"/>
+		<antcall target="checkPagesPackage">
+			 <param name="page.dir" value="${export.folder}/pages"/>
+		</antcall>
+	</target>
+	
+	<!-- Target calling the checkPagesPackage target and sets the parameter to the folder corresponding to the package containing pages which follow the naming convention -->
+	<target name="checkPagesPackage-Success">
+		<propertyreset name="export.folder" value="ExportFolder-1"/>
+		<echo message="Validates if the package present in the '${export.folder}' folder contains some pages whose name follows the naming convention (in this case the pages follow the naming convention)"/>
+		<antcall target="checkPagesPackage">
+			 <param name="page.dir" value="${export.folder}/pages"/>
+		</antcall>
+	</target>
+	
+	<!--**********************************************************************************************************
+					VF PAGE VALIDATION SECTION [END]
+	***********************************************************************************************************-->	
+	
+	
+	<!--**********************************************************************************************************
+					DESIGN STANDARD VALIDATION SECTION [START]
+	***********************************************************************************************************-->
+	<target name="designStandardCheck" description="Validate that the fields have a description attribute">
+		<property name="review" value="designStandardChecks-KO" />
+        <!--property name="myclasspath" refid="globalpath"/-->
+		<xslt in="dummy.xml" out="${review}.csv" processor ="org.apache.tools.ant.taskdefs.optional.TraXLiaison"
+               style="${review}.xsl" force="true" classpathref="globalpath">
+			<factory name="net.sf.saxon.TransformerFactoryImpl"/>
+        </xslt>
+		
+		<!-- sets the count property : if the size of the file generated by the XSLT task is 0, we consider that there is no missing description 
+		(when a description is missing for 1 field, a row is created in the CSV file) -->
+		<resourcecount property="count">
+			<fileset id="matchesGlobal" dir=".">
+				<patternset id="files">
+					<include name="${review}.csv"/>			
+				</patternset>
+				<size value="0" when="more"/>
+			</fileset>
+		</resourcecount>
+		
+		<fail message="1 or more fields have no description. More information can be found in the ${review}.csv file ">
+			<condition>
+				<!--Check if the count property of the resourcecount task is greater than 0-->
+				<resourcecount when="more" count="0" refid="matchesGlobal" />
+			</condition>
+		</fail>
+		<echo message="All the fields have a description attribute"/>
+	</target>
+	
+	<target name="checkDesignStandard-Fail">
+		<propertyreset name="review" value="designStandardChecks-KO"/>
+		<echo message="Validates if the package present in the '${export.folder}' folder contains some pages whose name follows the naming convention (in this case the pages follow the naming convention)"/>
+		<antcall target="designStandardCheck">
+			 <param name="review" value="${review}"/>
+		</antcall>
+	</target>
+	
+	<target name="checkDesignStandard-Success">
+		<propertyreset name="review" value="designStandardChecks-OK"/>
+		<echo message="Validates if the package present in the '${export.folder}' folder contains some pages whose name follows the naming convention (in this case the pages follow the naming convention)"/>
+		<antcall target="designStandardCheck">
+			 <param name="review" value="${review}"/>
+		</antcall>
+	</target>
+	
+	<!--**********************************************************************************************************
+					DESIGN STANDARD VALIDATION SECTION [START]
+	***********************************************************************************************************-->
+	
+	
+	<target name="checkComponentsPackage">
+		<property name="comp.dir" value="ExportFolder/components" />
+		<resourcecount property="count">
+			<fileset id="matchesGlobal" dir="${comp.dir}">
+				<patternset id="files">
+					<include name="**/*.components"/>
+					
+				</patternset>
+			</fileset>
+		</resourcecount>
+		<echo message="${count}"/>
+		<resourcecount property="countNC">
+			<fileset id="matches" dir="${comp.dir}">
+				<filename regex="CC_[0-9][0-9][0-9]*.component"/>
+			</fileset>
+		</resourcecount>
+		<fail message="Found '${count}' '${countNC}' components in '${comp.dir}'">
+			<condition>
+				<resourcecount when="less" count="${count}" refid="matches" />
+			</condition>
+		</fail>
+	</target>
+	
+	<!--CLEAN-->
+	<target name="clean">
+		<echo message="DELETE RITE Form button to ${sf.username2}" />
+		<echo message="serverurl2 => ${sf.serverurl2}" />
+		<deploy
+			checkOnly="${sf.checkOnly}"
+			logType="Detail"
+			username="${sf.username2}"
+			password="${sf.password2}"
+			serverurl="${sf.serverurl2}"
+			deployRoot="RemoveObsolete"
+			pollWaitMillis="1000"
+			maxPoll="1000"
+			singlePackage="true"
+			runAllTests="${sf.runAllTest}"
+		/>
+	</target>
+	
+</project>
